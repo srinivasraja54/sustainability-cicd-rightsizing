@@ -37,6 +37,7 @@ jobs:
           AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          ACA_BASE_NAME: ${{ secrets.ACA_BASE_NAME }}
           GH_PAT: ${{ secrets.RUNNER_REGISTRATION_PAT }}
           GH_REPO: ${{ github.repository }}
         run: |
