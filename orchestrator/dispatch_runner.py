@@ -73,12 +73,18 @@ def start_runner_job(
         subscription_id=subscription_id,
     )
 
+    # The ACA Jobs start API requires `image` in the container override
+    # (it does not inherit from the job definition). Fetch it.
+    job = client.jobs.get(resource_group_name=resource_group, job_name=job_name)
+    image = job.template.containers[0].image
+
     # Override env on this single execution so we can inject the
     # one-shot registration token without persisting it on the job def.
     template_override = {
         "containers": [
             {
                 "name": "runner",
+                "image": image,
                 "env": [
                     {"name": "GH_OWNER", "value": owner},
                     {"name": "GH_REPO", "value": name},
