@@ -92,7 +92,7 @@ def start_runner_job(
     poller = client.jobs.begin_start(
         resource_group_name=resource_group,
         job_name=job_name,
-        template={"template": template_override},
+        template=template_override,
     )
     execution = poller.result()
     return execution.name
