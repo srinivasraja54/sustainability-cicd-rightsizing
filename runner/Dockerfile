@@ -1,22 +1,23 @@
-FROM mcr.microsoft.com/azurelinux/base/core:3.0
+FROM ubuntu:22.04
 
 ARG RUNNER_VERSION=2.319.1
 ARG TARGETARCH=x64
 
-RUN tdnf -y update && tdnf -y install \
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         tar \
         git \
         jq \
-        icu \
-        libunwind \
+        libicu70 \
+        libunwind8 \
         openssl \
         sudo \
         python3 \
         python3-pip \
-        nodejs \
-    && tdnf clean all
+    && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -s /bin/bash runner && \
     echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner
