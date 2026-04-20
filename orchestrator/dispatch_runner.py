@@ -118,7 +118,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workflow", required=True, type=Path)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--base-name", default=os.environ.get("ACA_BASE_NAME", "cicdrs"))
+    parser.add_argument(
+        "--base-name", default=os.environ.get("ACA_BASE_NAME", "cicdrs")
+    )
     args = parser.parse_args()
 
     decision = analyze(args.workflow, allow_llm=True)
