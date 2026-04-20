@@ -1,0 +1,51 @@
+name: 02 - Medium - Build & Test
+
+# Example of a "medium" pipeline: a typical app build + unit tests.
+# Dispatcher should size this as `medium` (2 vCPU / 4 GiB).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.size.outputs.runner-label }}
+      size: ${{ steps.size.outputs.size }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r orchestrator/requirements.txt
+      - id: size
+        env:
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          GH_PAT: ${{ secrets.RUNNER_REGISTRATION_PAT }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python orchestrator/dispatch_runner.py \
+            --workflow .github/workflows/02-medium-test.yml \
+            --run-id ${{ github.run_id }}
+
+  build-and-test:
+    needs: dispatch
+    runs-on: [self-hosted, "${{ needs.dispatch.outputs.runner-label }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -r orchestrator/requirements.txt pytest pytest-cov
+      - name: Run unit tests with coverage
+        run: pytest orchestrator/ --cov=orchestrator --cov-report=xml
+      - name: Build Docker image
+        run: docker build -t demo-app:${{ github.sha }} runner/

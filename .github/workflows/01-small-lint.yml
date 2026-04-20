@@ -1,0 +1,54 @@
+name: 01 - Small - Lint & Format Check
+
+# Example of a "small" pipeline: lightweight, IO-bound work that does not
+# need a beefy runner. The dispatcher should size this as `small`
+# (0.5 vCPU / 1 GiB) — see docs/sustainability-impact.md.
+
+on:
+  push:
+    paths:
+      - "**/*.py"
+      - "**/*.md"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    name: Pick right-sized runner
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.size.outputs.runner-label }}
+      size: ${{ steps.size.outputs.size }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install orchestrator deps
+        run: pip install -r orchestrator/requirements.txt
+      - name: Decide runner size & provision ACA Job execution
+        id: size
+        env:
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          GH_PAT: ${{ secrets.RUNNER_REGISTRATION_PAT }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python orchestrator/dispatch_runner.py \
+            --workflow .github/workflows/01-small-lint.yml \
+            --run-id ${{ github.run_id }}
+
+  lint:
+    name: Run lint on right-sized runner
+    needs: dispatch
+    runs-on: [self-hosted, "${{ needs.dispatch.outputs.runner-label }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check orchestrator/
+      - run: ruff format --check orchestrator/

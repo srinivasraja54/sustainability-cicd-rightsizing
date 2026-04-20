@@ -1,0 +1,5 @@
+openai>=1.40.0
+pyyaml>=6.0.1
+azure-identity>=1.17.0
+azure-mgmt-appcontainers>=3.0.0
+requests>=2.32.0

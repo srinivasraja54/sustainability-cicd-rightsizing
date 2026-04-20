@@ -1,0 +1,64 @@
+name: 03 - Large - ML Training Job
+
+# Example of a "large" pipeline: heavy compute (model training, large
+# Docker builds, integration matrix). Dispatcher should size this as
+# `large` (4 vCPU / 8 GiB).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_size:
+        description: "Dataset size hint (small|medium|large)"
+        required: true
+        default: "large"
+  schedule:
+    # Nightly retrain
+    - cron: "0 2 * * *"
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.size.outputs.runner-label }}
+      size: ${{ steps.size.outputs.size }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r orchestrator/requirements.txt
+      - id: size
+        env:
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          GH_PAT: ${{ secrets.RUNNER_REGISTRATION_PAT }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python orchestrator/dispatch_runner.py \
+            --workflow .github/workflows/03-large-ml-training.yml \
+            --run-id ${{ github.run_id }}
+
+  train:
+    needs: dispatch
+    runs-on: [self-hosted, "${{ needs.dispatch.outputs.runner-label }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ML deps
+        run: pip install numpy pandas scikit-learn
+      - name: Train model (simulated)
+        run: |
+          python -c "
+          import numpy as np
+          from sklearn.ensemble import RandomForestRegressor
+          X = np.random.rand(100000, 20)
+          y = np.random.rand(100000)
+          model = RandomForestRegressor(n_estimators=200, n_jobs=-1)
+          model.fit(X, y)
+          print('Trained model on', X.shape, 'samples')
+          "
