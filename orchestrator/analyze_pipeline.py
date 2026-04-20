@@ -48,8 +48,11 @@ def analyze(workflow_path: Path, allow_llm: bool = True) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Decide runner size for a workflow.")
     parser.add_argument("--workflow", required=True, type=Path)
-    parser.add_argument("--no-llm", action="store_true",
-                        help="Disable LLM fallback (rules + default only).")
+    parser.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Disable LLM fallback (rules + default only).",
+    )
     parser.add_argument("--format", choices=("json", "label"), default="json")
     args = parser.parse_args()
 
