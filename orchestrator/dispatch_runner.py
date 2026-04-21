@@ -132,7 +132,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.deferrable:
-        zone = os.environ.get("GRID_ZONE", "IN-SO")
+        zone = os.environ.get("GRID_ZONE") or "IN-SO"
         carbon_decision = carbon.decide(zone)
         print(f"Carbon check ({zone}): {carbon_decision.reason}")
         if carbon_decision.defer:
