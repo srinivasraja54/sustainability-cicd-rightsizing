@@ -32,14 +32,23 @@ Each JSON captures `size`, `label`, `reason`, `source` — these are your eviden
 
 ### Optional: show the LLM fallback
 
-Set Azure OpenAI env vars and drop `--no-llm` on a workflow the rules can't classify. `source` flips from `rules` to `llm`.
+[04-ambiguous-terraform.yml](../.github/workflows/04-ambiguous-terraform.yml) is deliberately written so none of its commands (`terraform init/plan/apply`) match any regex in [sizing_rules.py](../orchestrator/sizing_rules.py) — so `decide_from_rules` returns `None` and the analyzer hands off to Azure OpenAI.
+
+First, confirm the rules don't classify it (should print `"source": "default"`):
+
+```bash
+python analyze_pipeline.py --workflow ../.github/workflows/04-ambiguous-terraform.yml --no-llm
+```
+
+Then set the Azure OpenAI env vars and rerun without `--no-llm` — `source` flips to `llm`:
 
 ```bash
 export AZURE_OPENAI_ENDPOINT=...
 export AZURE_OPENAI_API_KEY=...
-export AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+export AZURE_OPENAI_DEPLOYMENT=gpt-5-nano
 
-python analyze_pipeline.py --workflow <ambiguous.yml> | tee ../demo-results/llm-fallback.json
+python analyze_pipeline.py --workflow ../.github/workflows/04-ambiguous-terraform.yml \
+  | tee ../demo-results/04-llm-fallback.json
 ```
 
 ## Track 2 — End-to-end on Azure
@@ -57,13 +66,13 @@ Follows [setup.md](setup.md) — summarized here with the evidence-capture steps
 
 ### Evidence to capture per run
 
-| Artifact | Where to get it |
-|---|---|
-| Dispatch job log showing `runner-label` + `size` output | GitHub Actions run → `dispatch` job |
-| ACA Job execution (name, duration, vCPU/GiB) | Azure Portal → `cicdrs-runner-{small,medium,large}` → Executions |
-| Runner replica logs (register → run → exit) | Log Analytics, or the execution's Console tab |
-| Scale-to-zero confirmation | ACA env → replicas = 0 after job ends |
-| Per-run billable seconds | Execution duration × size rate from [cost-comparison.md](cost-comparison.md) |
+| Artifact                                                | Where to get it                                                              |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Dispatch job log showing `runner-label` + `size` output | GitHub Actions run → `dispatch` job                                          |
+| ACA Job execution (name, duration, vCPU/GiB)            | Azure Portal → `cicdrs-runner-{small,medium,large}` → Executions             |
+| Runner replica logs (register → run → exit)             | Log Analytics, or the execution's Console tab                                |
+| Scale-to-zero confirmation                              | ACA env → replicas = 0 after job ends                                        |
+| Per-run billable seconds                                | Execution duration × size rate from [cost-comparison.md](cost-comparison.md) |
 
 Screenshot each, or dump executions to a file:
 
@@ -80,11 +89,11 @@ az containerapp job execution list \
 
 Build a single table from the captured data to tell the story:
 
-| Workflow | Decided size | Source (rules/llm) | Duration | Cost on right-sized | Cost if forced to `large` | Savings |
-|---|---|---|---|---|---|---|
-| 01-small-lint | aca-small | rules | ~Xs | $… | $… | …% |
-| 02-medium-test | aca-medium | rules | ~Xs | $… | $… | …% |
-| 03-large-ml-training | aca-large | rules | ~Xs | $… | $… | 0% (baseline) |
+| Workflow             | Decided size | Source (rules/llm) | Duration | Cost on right-sized | Cost if forced to `large` | Savings       |
+| -------------------- | ------------ | ------------------ | -------- | ------------------- | ------------------------- | ------------- |
+| 01-small-lint        | aca-small    | rules              | ~Xs      | $…                  | $…                        | …%            |
+| 02-medium-test       | aca-medium   | rules              | ~Xs      | $…                  | $…                        | …%            |
+| 03-large-ml-training | aca-large    | rules              | ~Xs      | $…                  | $…                        | 0% (baseline) |
 
 Use the per-second rates in [cost-comparison.md](cost-comparison.md#pricing-inputs) for the math. That table plus the rules-vs-LLM split is the demo.
 
