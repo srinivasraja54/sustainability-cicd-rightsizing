@@ -57,5 +57,3 @@ jobs:
         run: pip install -r orchestrator/requirements.txt pytest pytest-cov
       - name: Run unit tests with coverage
         run: pytest orchestrator/ --cov=orchestrator --cov-report=xml
-      - name: Build Docker image
-        run: docker build -t demo-app:${{ github.sha }} runner/
