@@ -26,6 +26,8 @@ import requests
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.appcontainers import ContainerAppsAPIClient
 
+import carbon
+import deferred_queue
 from analyze_pipeline import analyze
 
 GH_API = "https://api.github.com"
@@ -121,7 +123,36 @@ def main() -> int:
     parser.add_argument(
         "--base-name", default=os.environ.get("ACA_BASE_NAME", "cicdrs")
     )
+    parser.add_argument(
+        "--deferrable",
+        action="store_true",
+        help="Workflow is time-flexible (schedule/cron or opt-in). "
+             "Eligible for carbon-aware deferral to a greener grid window.",
+    )
     args = parser.parse_args()
+
+    if args.deferrable:
+        zone = os.environ.get("GRID_ZONE", "IN-SO")
+        carbon_decision = carbon.decide(zone)
+        print(f"Carbon check ({zone}): {carbon_decision.reason}")
+        if carbon_decision.defer:
+            deferred_queue.enqueue(deferred_queue.DeferredRun(
+                repo=os.environ["GH_REPO"],
+                workflow_path=str(args.workflow),
+                scheduled_for_utc=carbon_decision.scheduled_for_utc or "",
+                original_run_id=args.run_id,
+                reason=carbon_decision.reason,
+            ))
+            write_gh_output("deferred", "true")
+            write_gh_output("scheduled-for", carbon_decision.scheduled_for_utc or "")
+            write_gh_output("current-gco2", str(carbon_decision.current_gco2 or ""))
+            write_gh_output("scheduled-gco2", str(carbon_decision.scheduled_gco2 or ""))
+            write_gh_output("carbon-reason", carbon_decision.reason)
+            # Exit 0 so the dispatch job completes cleanly. The scheduler
+            # workflow polls the queue every 10 min and re-triggers this
+            # workflow via workflow_dispatch when the message becomes visible.
+            # Downstream jobs gate on `needs.dispatch.outputs.deferred != 'true'`.
+            return 0
 
     decision = analyze(args.workflow, allow_llm=True)
     size = decision["size"]
@@ -152,6 +183,7 @@ def main() -> int:
     write_gh_output("size", size)
     write_gh_output("reason", decision["reason"])
     write_gh_output("source", decision["source"])
+    write_gh_output("deferred", "false")
 
     return 0
 

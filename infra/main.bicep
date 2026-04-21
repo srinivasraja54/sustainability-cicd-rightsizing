@@ -86,6 +86,18 @@ module env './modules/aca-environment.bicep' = {
   }
 }
 
+module storage './modules/storage.bicep' = {
+  name: 'carbon-queue-storage'
+  params: {
+    // Storage account names are globally unique, 3-24 lowercase alphanumeric.
+    // Replace hyphens from baseName to respect that.
+    name: toLower(replace('${baseName}sa', '-', ''))
+    location: location
+    orchestratorPrincipalId: identity.outputs.principalId
+    tags: tags
+  }
+}
+
 // --- Three runner jobs, one per size tier ---
 
 var sizes = [
@@ -134,3 +146,4 @@ output acrLoginServer string = acr.properties.loginServer
 output runnerJobNames array = deployRunnerJobs ? map(sizes, s => '${baseName}-runner-${s.name}') : []
 output azureOpenAiEndpointOut string = azureOpenAiEndpoint
 output azureOpenAiDeploymentOut string = azureOpenAiDeployment
+output carbonQueueAccountUrl string = storage.outputs.queueAccountUrl

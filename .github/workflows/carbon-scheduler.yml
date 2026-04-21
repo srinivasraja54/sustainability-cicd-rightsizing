@@ -1,0 +1,42 @@
+name: Carbon-Deferred Run Scheduler
+
+# Polls the carbon-deferred Azure Storage Queue every 10 minutes and
+# re-triggers any runs whose green-window has arrived.
+#
+# Enterprise upgrade path: replace this workflow with an ACA Job that has
+# `triggerType: Schedule` pointing at the same carbon_scheduler.py.
+# Same script, same queue — only the host changes.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write   # to call POST /actions/workflows/{wf}/dispatches
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r orchestrator/requirements.txt
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          auth-type: SERVICE_PRINCIPAL
+          creds: >-
+            {"clientId":"${{ secrets.AZURE_CLIENT_ID }}",
+             "clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}",
+             "tenantId":"${{ secrets.AZURE_TENANT_ID }}",
+             "subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}"}
+      - name: Drain queue and re-trigger due runs
+        env:
+          CARBON_QUEUE_ACCOUNT_URL: ${{ secrets.CARBON_QUEUE_ACCOUNT_URL }}
+          GH_PAT: ${{ secrets.RUNNER_REGISTRATION_PAT }}
+        working-directory: orchestrator
+        run: python carbon_scheduler.py
