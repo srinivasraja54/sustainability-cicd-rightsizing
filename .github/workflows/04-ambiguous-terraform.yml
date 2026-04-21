@@ -1,0 +1,60 @@
+name: 04 - Ambiguous - Terraform Plan & Apply
+
+# Deliberately ambiguous workflow used to demo the LLM fallback.
+# None of the commands here match sizing_rules.py regex patterns, so
+# decide_from_rules() returns None and analyze_pipeline.py hands off
+# to Azure OpenAI. Source in the decision JSON should be "llm".
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    outputs:
+      runner-label: ${{ steps.size.outputs.runner-label }}
+      size: ${{ steps.size.outputs.size }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r orchestrator/requirements.txt
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          auth-type: SERVICE_PRINCIPAL
+          creds: >-
+            {"clientId":"${{ secrets.AZURE_CLIENT_ID }}",
+             "clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}",
+             "tenantId":"${{ secrets.AZURE_TENANT_ID }}",
+             "subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}"}
+      - id: size
+        env:
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          ACA_BASE_NAME: ${{ secrets.ACA_BASE_NAME }}
+          GH_PAT: ${{ secrets.RUNNER_REGISTRATION_PAT }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python orchestrator/dispatch_runner.py \
+            --workflow .github/workflows/04-ambiguous-terraform.yml \
+            --run-id ${{ github.run_id }}
+
+  infra:
+    needs: dispatch
+    runs-on: [self-hosted, "${{ needs.dispatch.outputs.runner-label }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+      - name: Initialize working directory
+        run: terraform -chdir=infra/tf init -input=false
+      - name: Produce a plan
+        run: terraform -chdir=infra/tf plan -input=false -out=tfplan
+      - name: Apply the plan
+        run: terraform -chdir=infra/tf apply -input=false -auto-approve tfplan
