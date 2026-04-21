@@ -59,6 +59,7 @@ jobs:
           ELECTRICITYMAPS_API_KEY: ${{ secrets.ELECTRICITYMAPS_API_KEY }}
           GRID_ZONE: ${{ vars.GRID_ZONE }}
           CARBON_MOCK: ${{ vars.CARBON_MOCK }}
+          CARBON_QUEUE_ACCOUNT_URL: ${{ secrets.CARBON_QUEUE_ACCOUNT_URL }}
         run: |
           DEFERRABLE_FLAG=""
           if [[ "${{ github.event_name }}" == "schedule" ]] || \
