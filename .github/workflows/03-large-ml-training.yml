@@ -11,6 +11,14 @@ on:
         description: "Dataset size hint (small|medium|large)"
         required: true
         default: "large"
+      deferrable:
+        description: "Allow carbon-aware deferral to a greener grid window"
+        type: boolean
+        default: true
+      deferred_from:
+        description: "(internal) Original run_id when re-triggered by the carbon scheduler"
+        required: false
+        default: ""
   schedule:
     # Nightly retrain
     - cron: "0 2 * * *"
@@ -21,6 +29,8 @@ jobs:
     outputs:
       runner-label: ${{ steps.size.outputs.runner-label }}
       size: ${{ steps.size.outputs.size }}
+      deferred: ${{ steps.size.outputs.deferred }}
+      scheduled-for: ${{ steps.size.outputs.scheduled-for }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,13 +56,23 @@ jobs:
           ACA_BASE_NAME: ${{ secrets.ACA_BASE_NAME }}
           GH_PAT: ${{ secrets.RUNNER_REGISTRATION_PAT }}
           GH_REPO: ${{ github.repository }}
+          ELECTRICITYMAPS_API_KEY: ${{ secrets.ELECTRICITYMAPS_API_KEY }}
+          GRID_ZONE: ${{ vars.GRID_ZONE }}
+          CARBON_MOCK: ${{ vars.CARBON_MOCK }}
         run: |
+          DEFERRABLE_FLAG=""
+          if [[ "${{ github.event_name }}" == "schedule" ]] || \
+             [[ "${{ inputs.deferrable }}" == "true" ]]; then
+            DEFERRABLE_FLAG="--deferrable"
+          fi
           python orchestrator/dispatch_runner.py \
             --workflow .github/workflows/03-large-ml-training.yml \
-            --run-id ${{ github.run_id }}
+            --run-id ${{ github.run_id }} \
+            $DEFERRABLE_FLAG
 
   train:
     needs: dispatch
+    if: needs.dispatch.outputs.deferred != 'true'
     runs-on: [self-hosted, "${{ needs.dispatch.outputs.runner-label }}"]
     steps:
       - uses: actions/checkout@v4
