@@ -54,8 +54,7 @@ def decide_with_llm(workflow_yaml: str, cfg: AzureOpenAIConfig) -> SizingDecisio
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": workflow_yaml},
         ],
-        max_tokens=200,
-        temperature=0,
+        max_completion_tokens=200,
         response_format={"type": "json_object"},
     )
 
