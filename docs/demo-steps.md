@@ -1,6 +1,12 @@
 # Steps for the demo
 
-Two tracks: a **local-only demo** (fast, no Azure) and a **full end-to-end demo** (Azure + GitHub). Pick one based on how much time and infrastructure you have.
+Three tracks:
+
+1. **Local-only demo** — rules-vs-LLM sizing logic. Fast, no Azure, ~5 min.
+2. **End-to-end on Azure** — right-sized ACA Job execution per pipeline.
+3. **Carbon-aware deferral** — workflow defers itself to a greener grid window, scheduler re-triggers it. Requires Track 2 deployed.
+
+Pick based on how much time and infrastructure you have.
 
 ## Track 1 — Local demo (5 minutes, no Azure)
 
@@ -85,6 +91,54 @@ az containerapp job execution list \
     -g my-rg -n cicdrs-runner-large  -o table > demo-results/executions-large.txt
 ```
 
+## Track 3 — Carbon-aware deferral
+
+Demonstrates that a deferrable workflow waits for a greener grid window and is re-triggered automatically. Uses `CARBON_MOCK` so you don't have to wait for a real bad-carbon day.
+
+### Setup (one-time)
+
+In the GitHub repo settings → **Secrets and variables → Actions → Variables**, add:
+
+- `CARBON_MOCK` = `high`  (forces the dispatcher to defer)
+- `GRID_ZONE` = e.g. `IN-SO`  (only used when `CARBON_MOCK` is unset, but harmless to set)
+
+Confirm `CARBON_QUEUE_ACCOUNT_URL` is set in **Secrets** (from the Bicep deploy output — see [setup.md](setup.md#1-deploy-the-infrastructure)).
+
+### Demo flow
+
+1. **Trigger the deferrable workflow.** From the Actions tab, run [03-large-ml-training.yml](../.github/workflows/03-large-ml-training.yml) with `deferrable=true` (the default).
+2. **Show the dispatch job log.** It should print:
+   ```
+   Carbon check (IN-SO): MOCK: current 420 gCO2/kWh → defer 2h to 140 gCO2/kWh window
+   Enqueued deferred run (visible in 7200s): <run-id>
+   ```
+   Outputs: `deferred=true`, `scheduled-for=<future ISO timestamp>`, `current-gco2=420`, `scheduled-gco2=140`.
+3. **Show the `train` job is skipped.** Its `if: needs.dispatch.outputs.deferred != 'true'` gate keeps it from consuming a runner.
+4. **Show the queue.** In the Azure Portal → Storage account → Queues → `carbon-deferred`, the message is present but **not visible** until its scheduled time.
+   ```bash
+   az storage message peek \
+       --account-name <your-sa> --queue-name carbon-deferred \
+       --auth-mode login
+   # → empty list (message is hidden)
+   ```
+5. **Show automatic re-trigger.** Either wait for the next [carbon-scheduler.yml](../.github/workflows/carbon-scheduler.yml) cron tick (≤10 min), or manually run it from the Actions tab. For an instant demo, lower the mock delay in [carbon.py](../orchestrator/carbon.py) to e.g. 30s before the demo.
+6. **Show the re-triggered run.** A new run of `03-large-ml-training.yml` appears with `inputs.deferrable=false` and `inputs.deferred_from=<original-run-id>` — proving the loop closes without entering another deferral.
+7. **Flip to `low` to show fail-open.** Set `CARBON_MOCK=low` and re-trigger; dispatch logs `MOCK: current 140 gCO2/kWh already green` and the workflow runs immediately.
+
+### Evidence to capture
+
+| Artifact | Where |
+|---|---|
+| Dispatch log: carbon decision + queue enqueue | GitHub Actions run → `dispatch` job |
+| `train` job skipped | GitHub Actions run → `train` job ("Skipped") |
+| Queue message hidden until scheduled time | Azure Portal → Storage → Queues, or `az storage message peek` |
+| Carbon scheduler workflow draining the queue | Actions tab → "Carbon-Deferred Run Scheduler" run logs |
+| Re-triggered workflow run with `deferred_from` set | Actions tab → original workflow → new run |
+
+### Talking point
+
+> "The same workload, same code, ran when the grid was 67% cleaner — without a developer having to think about it. PR builds stay synchronous; only opt-in deferrable workflows wait."
+
 ## Results summary to produce
 
 Build a single table from the captured data to tell the story:
@@ -97,10 +151,10 @@ Build a single table from the captured data to tell the story:
 
 Use the per-second rates in [cost-comparison.md](cost-comparison.md#pricing-inputs) for the math. That table plus the rules-vs-LLM split is the demo.
 
-## Cleanup (Track 2 only)
+## Cleanup (Tracks 2 & 3)
 
 ```bash
 az group delete -n my-rg --yes --no-wait
 ```
 
-Avoids lingering Log Analytics / ACR charges after the demo.
+Avoids lingering Log Analytics / ACR / storage charges after the demo. Also clear the `CARBON_MOCK` repo variable if you set it for Track 3 — otherwise every subsequent run of `03-large-ml-training.yml` will try to defer.
