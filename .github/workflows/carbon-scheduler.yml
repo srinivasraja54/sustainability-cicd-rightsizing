@@ -37,6 +37,6 @@ jobs:
       - name: Drain queue and re-trigger due runs
         env:
           CARBON_QUEUE_ACCOUNT_URL: ${{ secrets.CARBON_QUEUE_ACCOUNT_URL }}
-          GH_PAT: ${{ secrets.RUNNER_REGISTRATION_PAT }}
+          GH_PAT: ${{ github.token }}
         working-directory: orchestrator
         run: python carbon_scheduler.py
