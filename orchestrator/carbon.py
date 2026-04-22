@@ -64,12 +64,18 @@ def decide(
     if mock == "high":
         future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
         return DeferDecision(
-            True, 420.0, future, 140.0,
+            True,
+            420.0,
+            future,
+            140.0,
             "MOCK: current 420 gCO2/kWh → defer 2h to 140 gCO2/kWh window",
         )
     if mock == "low":
         return DeferDecision(
-            False, 140.0, None, None,
+            False,
+            140.0,
+            None,
+            None,
             "MOCK: current 140 gCO2/kWh already green",
         )
 
@@ -91,9 +97,11 @@ def decide(
     current = forecast[0]["carbonIntensity"]
 
     window = [
-        f for f in forecast
-        if 0 < (datetime.fromisoformat(f["datetime"]) - now).total_seconds() / 3600
-             <= max_defer_hours
+        f
+        for f in forecast
+        if 0
+        < (datetime.fromisoformat(f["datetime"]) - now).total_seconds() / 3600
+        <= max_defer_hours
     ]
     if not window:
         return DeferDecision(False, current, None, None, "no forecast points in window")
@@ -102,14 +110,20 @@ def decide(
 
     if current <= threshold_gco2:
         return DeferDecision(
-            False, current, None, None,
+            False,
+            current,
+            None,
+            None,
             f"current {current:.0f} gCO2/kWh already below threshold",
         )
 
     # Only defer if the greener window is meaningfully cleaner — >= 20% reduction.
     if cleanest["carbonIntensity"] >= current * 0.8:
         return DeferDecision(
-            False, current, None, None,
+            False,
+            current,
+            None,
+            None,
             f"no >=20% greener window within {max_defer_hours}h",
         )
 

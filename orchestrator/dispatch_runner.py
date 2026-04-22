@@ -127,7 +127,7 @@ def main() -> int:
         "--deferrable",
         action="store_true",
         help="Workflow is time-flexible (schedule/cron or opt-in). "
-             "Eligible for carbon-aware deferral to a greener grid window.",
+        "Eligible for carbon-aware deferral to a greener grid window.",
     )
     args = parser.parse_args()
 
@@ -136,13 +136,15 @@ def main() -> int:
         carbon_decision = carbon.decide(zone)
         print(f"Carbon check ({zone}): {carbon_decision.reason}")
         if carbon_decision.defer:
-            deferred_queue.enqueue(deferred_queue.DeferredRun(
-                repo=os.environ["GH_REPO"],
-                workflow_path=str(args.workflow),
-                scheduled_for_utc=carbon_decision.scheduled_for_utc or "",
-                original_run_id=args.run_id,
-                reason=carbon_decision.reason,
-            ))
+            deferred_queue.enqueue(
+                deferred_queue.DeferredRun(
+                    repo=os.environ["GH_REPO"],
+                    workflow_path=str(args.workflow),
+                    scheduled_for_utc=carbon_decision.scheduled_for_utc or "",
+                    original_run_id=args.run_id,
+                    reason=carbon_decision.reason,
+                )
+            )
             write_gh_output("deferred", "true")
             write_gh_output("scheduled-for", carbon_decision.scheduled_for_utc or "")
             write_gh_output("current-gco2", str(carbon_decision.current_gco2 or ""))

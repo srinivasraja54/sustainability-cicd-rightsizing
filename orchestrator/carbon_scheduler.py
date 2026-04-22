@@ -21,11 +21,12 @@ import requests
 from deferred_queue import QUEUE_NAME, _queue_client
 
 GH_API = "https://api.github.com"
-BATCH_SIZE = 32    # max messages to drain per invocation
+BATCH_SIZE = 32  # max messages to drain per invocation
 
 
-def _trigger_workflow_dispatch(repo: str, workflow: str, pat: str,
-                               deferred_from: str) -> None:
+def _trigger_workflow_dispatch(
+    repo: str, workflow: str, pat: str, deferred_from: str
+) -> None:
     """POST /repos/{repo}/actions/workflows/{wf}/dispatches.
 
     `workflow` can be a filename (e.g. "03-large-ml-training.yml") or the
@@ -57,10 +58,12 @@ def drain_once() -> int:
     client = _queue_client()
     pat = os.environ["GH_PAT"]
 
-    messages = list(client.receive_messages(
-        messages_per_page=BATCH_SIZE,
-        visibility_timeout=60,  # hide while we process; delete on success
-    ))
+    messages = list(
+        client.receive_messages(
+            messages_per_page=BATCH_SIZE,
+            visibility_timeout=60,  # hide while we process; delete on success
+        )
+    )
     if not messages:
         print(f"{QUEUE_NAME}: no due messages")
         return 0
@@ -69,8 +72,10 @@ def drain_once() -> int:
     for msg in messages:
         try:
             payload = json.loads(msg.content)
-            print(f"Re-triggering {payload['workflow_path']} "
-                  f"(deferred from run {payload['original_run_id']})")
+            print(
+                f"Re-triggering {payload['workflow_path']} "
+                f"(deferred from run {payload['original_run_id']})"
+            )
             _trigger_workflow_dispatch(
                 repo=payload["repo"],
                 workflow=payload["workflow_path"],
