@@ -52,6 +52,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.7.5"
+          terraform_wrapper: false
       - name: Initialize working directory
         run: terraform -chdir=infra/tf init -input=false
       - name: Produce a plan

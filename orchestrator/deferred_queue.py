@@ -50,13 +50,15 @@ def enqueue(run: DeferredRun) -> None:
     delay = (scheduled - datetime.now(timezone.utc)).total_seconds()
     delay = max(0, min(int(delay), MAX_VISIBILITY_SECONDS))
 
-    payload = json.dumps({
-        "repo": run.repo,
-        "workflow_path": run.workflow_path,
-        "scheduled_for_utc": run.scheduled_for_utc,
-        "original_run_id": run.original_run_id,
-        "reason": run.reason,
-    })
+    payload = json.dumps(
+        {
+            "repo": run.repo,
+            "workflow_path": run.workflow_path,
+            "scheduled_for_utc": run.scheduled_for_utc,
+            "original_run_id": run.original_run_id,
+            "reason": run.reason,
+        }
+    )
 
     client = _queue_client()
     client.send_message(payload, visibility_timeout=delay)
