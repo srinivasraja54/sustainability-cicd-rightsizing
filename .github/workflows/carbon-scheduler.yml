@@ -9,7 +9,7 @@ name: Carbon-Deferred Run Scheduler
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: none
   workflow_dispatch:
 
 permissions:
