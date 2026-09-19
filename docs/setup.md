@@ -24,8 +24,9 @@ Outputs you'll need:
 - Managed identity client ID
 - ACA environment name
 - Carbon queue account URL (e.g. `https://cicdrssa.queue.core.windows.net`) — surfaced as the `carbonQueueAccountUrl` output. Goes into the `CARBON_QUEUE_ACCOUNT_URL` GitHub secret below.
+- Sizing cache account URL (e.g. `https://cicdrssa.blob.core.windows.net`) — surfaced as the `sizingCacheAccountUrl` output. Goes into the `SIZING_CACHE_ACCOUNT_URL` GitHub secret below.
 
-The deploy provisions a storage account with `allowSharedKeyAccess: false` and a `carbon-deferred` queue, and grants the managed identity the **Storage Queue Data Message Sender** + **Processor** built-in roles. No keys to copy out.
+The deploy provisions one storage account with `allowSharedKeyAccess: false` holding both bits of orchestrator state — the `carbon-deferred` queue and the `sizing-cache` blob container — and grants the managed identity **Storage Queue Data Message Sender** + **Processor** on the account plus **Storage Blob Data Contributor** scoped to the cache container. No keys to copy out.
 
 ## 2. Build & push the runner image
 
@@ -109,6 +110,39 @@ az role assignment create \
     --scope "/subscriptions/$SUB/resourceGroups/$RG"
 ```
 
+## 3b. Grant the CI principal access to the storage account
+
+Read this one carefully — it is the step that silently costs you money if you skip it.
+
+The Bicep grants the storage roles to the **user-assigned managed identity**. But the dispatcher runs inside a GitHub Actions job that authenticates with `azure/login@v2`, so `DefaultAzureCredential` resolves through the Azure CLI and acts as the **service principal** behind `AZURE_CLIENT_ID` — a different object. Unless that principal also holds the roles, every cache read returns 403.
+
+Both the cache and the queue fail *open*, by design, so nothing breaks visibly: the pipeline still sizes correctly and still runs. You just pay for an Azure OpenAI call on every ambiguous dispatch instead of one per workflow change, and deferred runs never enqueue. Check the dispatch log for `WARN: sizing cache unreadable` if you suspect this.
+
+```bash
+RG=my-rg
+SUB=$(az account show --query id -o tsv)
+SA=cicdrssa              # the storage account from the deploy output
+SP_OBJECT_ID=$(az ad sp show --id "$AZURE_CLIENT_ID" --query id -o tsv)
+
+# Cache read/write, scoped to the container.
+az role assignment create \
+    --assignee-object-id "$SP_OBJECT_ID" \
+    --assignee-principal-type ServicePrincipal \
+    --role "Storage Blob Data Contributor" \
+    --scope "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Storage/storageAccounts/$SA/blobServices/default/containers/sizing-cache"
+
+# Carbon deferral: enqueue + drain.
+for ROLE in "Storage Queue Data Message Sender" "Storage Queue Data Message Processor"; do
+  az role assignment create \
+      --assignee-object-id "$SP_OBJECT_ID" \
+      --assignee-principal-type ServicePrincipal \
+      --role "$ROLE" \
+      --scope "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Storage/storageAccounts/$SA"
+done
+```
+
+If you move the dispatcher to OIDC (step 5) or run it on the managed identity directly, the Bicep assignments already cover you and this step is unnecessary.
+
 ## 4. Add GitHub repo secrets
 
 | Secret | Value |
@@ -122,6 +156,7 @@ az role assignment create \
 | `ACA_BASE_NAME` | The `baseName` parameter from `main.bicepparam` (default `cicdrs`). |
 | `RUNNER_REGISTRATION_PAT` | GitHub PAT (`repo` + `workflow` scopes) |
 | `CARBON_QUEUE_ACCOUNT_URL` | `carbonQueueAccountUrl` output from the Bicep deploy (e.g. `https://cicdrssa.queue.core.windows.net`). Required for carbon-aware deferral. |
+| `SIZING_CACHE_ACCOUNT_URL` | `sizingCacheAccountUrl` output from the Bicep deploy (e.g. `https://cicdrssa.blob.core.windows.net`). Optional — without it the dispatcher logs `sizing cache: disabled` and calls Azure OpenAI on every ambiguous dispatch. |
 | `ELECTRICITYMAPS_API_KEY` | API key from Electricity Maps. Optional — without it, the carbon check fails open and runs immediately. |
 
 ### GitHub Actions repo *variables* (not secrets)

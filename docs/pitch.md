@@ -13,7 +13,7 @@ Their typical deployment: static VM scale sets or always-on AKS runner scale set
 
 A deployable reference architecture for self-hosted GitHub Actions runners on Azure Container Apps that combines three things nobody has shipped together for this workload class:
 
-1. **Rules-first + LLM-fallback sizing dispatcher** — cheap regex heuristics classify the majority of workflows; Azure OpenAI fallback handles the ambiguous minority. Keeps per-dispatch energy + latency down.
+1. **Rules-first + LLM-fallback sizing dispatcher** — cheap regex heuristics classify the majority of workflows; Azure OpenAI fallback handles the ambiguous minority, and its verdict is cached under a content hash so the model is paid for once per workflow change rather than once per run. Keeps per-dispatch energy + latency down.
 2. **Carbon-aware deferral** — time-flexible workflows (scheduled cron, nightly batch) opt into deferral to a greener grid window via Electricity Maps + a durable queue + re-trigger scheduler.
 3. **Ephemeral ACA Jobs with scale-to-zero** — three size tiers (small/medium/large) backed by Manual-triggered Container Apps Jobs. Pay per replica-second, not per hour.
 
@@ -45,7 +45,7 @@ Ordered by enterprise-credibility impact. Each is a single sprint's work.
 
 ## Demo-ready features as of today
 
-- Rules-first + LLM-fallback sizing (local + Azure).
+- Rules-first + LLM-fallback sizing (local + Azure), with the fallback verdict cached per (workflow, prompt, model) hash.
 - Three right-sized ACA Jobs with managed-identity ACR pull, scale-to-zero.
 - Carbon-aware deferral with `CARBON_MOCK=high|low` for deterministic stage demos.
 - Durable deferred-run queue with managed-identity-only auth (no shared keys).

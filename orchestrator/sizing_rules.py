@@ -25,7 +25,7 @@ class SizingDecision:
     size: str
     label: str
     reason: str
-    source: str  # "rules" or "llm"
+    source: str  # "rules", "llm", or "llm-cached" (see decision_cache.py)
 
 
 def _label(size: str) -> str:

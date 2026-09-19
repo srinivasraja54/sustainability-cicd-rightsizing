@@ -57,14 +57,38 @@ python analyze_pipeline.py --workflow ../.github/workflows/04-ambiguous-terrafor
   | tee ../demo-results/04-llm-fallback.json
 ```
 
+### Optional: show the cache (the "once per workflow change" claim)
+
+With `SIZING_CACHE_ACCOUNT_URL` also exported, run the same command twice:
+
+```bash
+export SIZING_CACHE_ACCOUNT_URL=https://cicdrssa.blob.core.windows.net
+
+python analyze_pipeline.py --workflow ../.github/workflows/04-ambiguous-terraform.yml \
+  | tee ../demo-results/04-llm-miss.json      # logs "sizing cache: miss", source: llm
+
+python analyze_pipeline.py --workflow ../.github/workflows/04-ambiguous-terraform.yml \
+  | tee ../demo-results/04-llm-hit.json       # logs "sizing cache: hit",  source: llm-cached
+```
+
+The second run calls no model. Add a line to the workflow YAML and run again — the key changes, so it misses and re-decides. `--no-cache` forces a fresh call at any time.
+
+If you'd rather demo this with no Azure account at all, the same behaviour is asserted in the test suite:
+
+```bash
+pytest test_analyze_pipeline.py -v
+```
+
+`test_ambiguous_workflow_calls_the_llm_once_then_caches` dispatches the same workflow eleven times against a faked Azure OpenAI client and asserts exactly one call; `test_editing_the_workflow_triggers_exactly_one_new_call` covers the invalidation side.
+
 ## Track 2 — End-to-end on Azure
 
 Follows [setup.md](setup.md) — summarized here with the evidence-capture steps added.
 
 1. **Deploy infra** — edit `infra/parameters/main.bicepparam`, then `./scripts/deploy.sh my-rg eastus2`. Capture the output (ACR login server, UAMI client ID, ACA env name).
 2. **Build & push runner image** — `./scripts/build-runner-image.sh cicdrsacr 1.0.0` (or the `buildx --platform linux/amd64` variant on Apple Silicon).
-3. **Grant RBAC** — Container Apps Contributor on the resource group to the user-assigned managed identity.
-4. **Add GitHub secrets** — the six listed in [setup.md](setup.md#4-add-github-repo-secrets).
+3. **Grant RBAC** — Container Apps Contributor on the resource group to the user-assigned managed identity, plus the storage roles for the CI service principal ([setup.md step 3b](setup.md#3b-grant-the-ci-principal-access-to-the-storage-account)) — skip that and the cache silently no-ops.
+4. **Add GitHub secrets** — those listed in [setup.md](setup.md#4-add-github-repo-secrets), including `SIZING_CACHE_ACCOUNT_URL`.
 5. **Trigger each sample workflow** from the Actions tab:
    - [01-small-lint.yml](../.github/workflows/01-small-lint.yml)
    - [02-medium-test.yml](../.github/workflows/02-medium-test.yml)
@@ -143,7 +167,7 @@ Confirm `CARBON_QUEUE_ACCOUNT_URL` is set in **Secrets** (from the Bicep deploy 
 
 Build a single table from the captured data to tell the story:
 
-| Workflow             | Decided size | Source (rules/llm) | Duration | Cost on right-sized | Cost if forced to `large` | Savings       |
+| Workflow             | Decided size | Source (rules/llm/llm-cached) | Duration | Cost on right-sized | Cost if forced to `large` | Savings       |
 | -------------------- | ------------ | ------------------ | -------- | ------------------- | ------------------------- | ------------- |
 | 01-small-lint        | aca-small    | rules              | ~Xs      | $…                  | $…                        | …%            |
 | 02-medium-test       | aca-medium   | rules              | ~Xs      | $…                  | $…                        | …%            |

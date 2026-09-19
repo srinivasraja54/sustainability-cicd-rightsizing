@@ -22,7 +22,9 @@ GitHub event (push / PR / cron / workflow_dispatch)
         │                   │  otherwise:                              │
         │                   │    1. analyze workflow YAML              │
         │                   │       a. rules first                     │
-        │                   │       b. Azure OpenAI fallback           │
+        │                   │       b. sizing-cache lookup (blob)      │
+        │                   │       c. Azure OpenAI fallback on miss   │
+        │                   │          → write verdict back to cache   │
         │                   │    2. mint JIT GH token                  │
         │                   │    3. start ACA Job execution            │
         │                   └──────────────────────────────────────────┘
@@ -102,20 +104,33 @@ A regex check costs ~microseconds and zero electricity. A Sonnet/4o-mini call co
 
 The LLM earns its keep on workflows that mix steps in unusual ways or use tools the rules don't know — the long tail. We treat it as a fallback, not a primary brain.
 
+### Sizing-decision cache ([decision_cache.py](../orchestrator/decision_cache.py))
+
+Rules-first cuts the LLM to the ambiguous minority of *workflows*. The cache cuts it further, to the first *dispatch* of each ambiguous workflow.
+
+Key = `sha256(deployment, prompt, workflow YAML)`, NUL-separated, stored as one small JSON blob per key in the `sizing-cache` container. Three properties fall out of that choice:
+
+1. **No invalidation logic.** Content-addressed keys can't go stale — editing the workflow, revising [sizing_prompt.txt](../orchestrator/prompts/sizing_prompt.txt), or repointing `AZURE_OPENAI_DEPLOYMENT` all yield a different key. There is no TTL to tune and no "flush the cache" runbook step.
+2. **No cross-contamination.** Two workflows that happen to size the same still get their own entries, so a later edit to one never disturbs the other.
+3. **Visible in the output.** A cache hit reports `source: "llm-cached"` rather than `"llm"`, so the dispatch log and the `source` GH Actions output show which runs actually paid for a model call.
+
+Failure handling mirrors [carbon.py](../orchestrator/carbon.py): **the cache never blocks CI.** Missing `SIZING_CACHE_ACCOUNT_URL`, a missing role assignment, a storage outage or a corrupt entry all degrade to a plain miss and a live LLM call. The worst case is the cost profile we had before the cache existed — never a failed pipeline.
+
 ## Components in this repo
 
 | Path | Purpose |
 |---|---|
-| `infra/main.bicep` | Top-level IaC: Log Analytics, ACR, managed identity, ACA env, storage+queue, three runner jobs. |
+| `infra/main.bicep` | Top-level IaC: Log Analytics, ACR, managed identity, ACA env, storage (queue + sizing cache), three runner jobs. |
 | `infra/modules/aca-environment.bicep` | The Container Apps Environment (consumption profile). |
 | `infra/modules/runner-job.bicep` | Per-size Container Apps Job definition. |
 | `infra/modules/managed-identity.bicep` | UAMI + AcrPull role assignment. |
-| `infra/modules/storage.bicep` | Storage account + `carbon-deferred` queue + Queue Sender/Processor RBAC for the UAMI. Shared-key access disabled. |
+| `infra/modules/storage.bicep` | Storage account + `carbon-deferred` queue + `sizing-cache` blob container, with Queue Sender/Processor and (container-scoped) Blob Data Contributor RBAC for the UAMI. Shared-key access disabled. |
 | `runner/Dockerfile` | Azure-Linux-based ephemeral GitHub runner image. |
 | `runner/entrypoint.sh` | Registers (`--ephemeral --unattended`), runs one job, exits. |
 | `orchestrator/sizing_rules.py` | Cheap regex/heuristic sizer. |
 | `orchestrator/azure_openai_client.py` | Calls Azure OpenAI deployment with `response_format=json_object`. |
-| `orchestrator/analyze_pipeline.py` | Pure decision function (no Azure side effects, easy to test/demo). |
+| `orchestrator/analyze_pipeline.py` | Decision function: rules → cache → LLM. `--no-llm` keeps it pure and Azure-free for local demos. |
+| `orchestrator/decision_cache.py` | Content-addressed blob cache for LLM verdicts — one call per workflow change, not per run. |
 | `orchestrator/carbon.py` | Electricity Maps client + defer/no-defer decision (with `CARBON_MOCK` demo hooks). |
 | `orchestrator/deferred_queue.py` | Azure Storage Queue wrapper; visibility-timeout = delay-until-green-window. |
 | `orchestrator/dispatch_runner.py` | End-to-end: (optional) carbon check → decide → mint token → start ACA Job execution → emit GH outputs. |
@@ -123,12 +138,13 @@ The LLM earns its keep on workflows that mix steps in unusual ways or use tools 
 | `.github/workflows/dispatcher-reusable.yml` | Reusable workflow other pipelines can `uses:`. |
 | `.github/workflows/carbon-scheduler.yml` | Cron (`*/10 * * * *`) wrapper that runs `carbon_scheduler.py`. |
 | `.github/workflows/0[1-3]-*.yml` | Three sample pipelines demonstrating the size tiers (03 also opts into deferral). |
-| `.github/workflows/04-ambiguous-terraform.yml` | Sample pipeline that exercises the LLM fallback (no rule matches `terraform`). |
+| `.github/workflows/04-ambiguous-terraform.yml` | Sample pipeline that exercises the LLM fallback (no rule matches `terraform`) — and, on its second run, the cache. |
 
 ## Security notes
 
-- **Managed identity** for ACR pulls, ACA Job control, *and* the carbon-deferred queue (both enqueue and drain). No long-lived service principal credentials for any Azure plane.
-- **Storage account is key-less.** `allowSharedKeyAccess: false` — the queue is reachable only via Entra-ID-issued tokens. No SAS, no access keys to leak.
+- **Managed identity** for ACR pulls, ACA Job control, the carbon-deferred queue (both enqueue and drain), *and* the sizing cache. No long-lived service principal credentials for any Azure plane.
+- **Storage account is key-less.** `allowSharedKeyAccess: false` — the queue and the cache container are reachable only via Entra-ID-issued tokens. No SAS, no access keys to leak. The cache role assignment is scoped to the `sizing-cache` container rather than the whole account.
+- **Cache entries are not a trust boundary.** A cached verdict only ever selects one of three pre-declared ACA Job definitions; an unparseable or out-of-range entry is discarded and re-decided. Nothing from the cache is executed.
 - **JIT registration tokens** are minted per-run, valid ~1 hour, used once. They never live in the image.
 - **GitHub PAT** for token minting is the one persistent secret. Scope it to `repo` + `workflow` only. (Roadmap item: replace with OIDC + short-lived registration token — see [pitch.md](pitch.md#roadmap--highest-leverage-next-features).)
 - **Per-run runner label** (`aca-medium-<run-id>-<rand>`) so two parallel pipelines can't accidentally pick up each other's runner.

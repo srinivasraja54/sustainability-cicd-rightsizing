@@ -7,6 +7,15 @@ This is the bit a hackathon judge can run locally with::
 
 It prints the decision and returns the size label on stdout. Useful for
 unit tests, CI dry-runs, and demoing the rules-vs-LLM split.
+
+Three sources are possible in the output:
+
+    "rules"      matched a pattern in sizing_rules.py — free, deterministic
+    "llm"        ambiguous workflow, fresh Azure OpenAI call (and cached)
+    "llm-cached" ambiguous workflow seen before, served from blob storage
+
+The cache is what keeps the LLM to one call per workflow *change* rather
+than one per run; see decision_cache.py.
 """
 
 from __future__ import annotations
@@ -19,7 +28,9 @@ from pathlib import Path
 from sizing_rules import decide_from_rules
 
 
-def analyze(workflow_path: Path, allow_llm: bool = True) -> dict:
+def analyze(
+    workflow_path: Path, allow_llm: bool = True, use_cache: bool = True
+) -> dict:
     text = workflow_path.read_text()
 
     decision = decide_from_rules(text)
@@ -31,11 +42,31 @@ def analyze(workflow_path: Path, allow_llm: bool = True) -> dict:
                 "reason": "no rule matched; LLM disabled; defaulting to medium",
                 "source": "default",
             }
-        # Lazy import so the pure-rules path doesn't require openai SDK.
-        from azure_openai_client import AzureOpenAIConfig, decide_with_llm
+        # Lazy imports so the pure-rules path doesn't require the openai or
+        # azure SDKs — `--no-llm` stays runnable on a laptop with neither.
+        import decision_cache
+        from azure_openai_client import PROMPT_PATH, AzureOpenAIConfig, decide_with_llm
 
         cfg = AzureOpenAIConfig.from_env()
-        decision = decide_with_llm(text, cfg)
+
+        # Cache on the full input set — workflow text, prompt, deployment —
+        # so the LLM is paid for once per workflow *change*, not once per run.
+        key = None
+        if use_cache and decision_cache.enabled():
+            key = decision_cache.key_for(
+                text, deployment=cfg.deployment, prompt=PROMPT_PATH.read_text()
+            )
+            decision = decision_cache.get(key)
+        elif use_cache:
+            print(
+                f"sizing cache: disabled ({decision_cache.ACCOUNT_URL_ENV} unset); "
+                "every ambiguous dispatch will call the LLM"
+            )
+
+        if decision is None:
+            decision = decide_with_llm(text, cfg)
+            if key is not None:
+                decision_cache.put(key, decision)
 
     return {
         "size": decision.size,
@@ -53,10 +84,18 @@ def main() -> int:
         action="store_true",
         help="Disable LLM fallback (rules + default only).",
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Bypass the sizing cache and force a fresh LLM call. Useful for "
+        "demoing the miss/hit difference, or after editing the prompt.",
+    )
     parser.add_argument("--format", choices=("json", "label"), default="json")
     args = parser.parse_args()
 
-    result = analyze(args.workflow, allow_llm=not args.no_llm)
+    result = analyze(
+        args.workflow, allow_llm=not args.no_llm, use_cache=not args.no_cache
+    )
 
     if args.format == "json":
         print(json.dumps(result, indent=2))

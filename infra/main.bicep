@@ -5,6 +5,7 @@
 //   - User-assigned managed identity used by the orchestrator + runners
 //   - Container Apps Environment (consumption profile, scale-to-zero)
 //   - Three Container Apps Jobs, one per size tier (small/medium/large)
+//   - Storage account: carbon-deferral queue + LLM sizing-decision cache
 //
 // All three jobs share the same image; they differ only in CPU/memory
 // allocation. The orchestrator picks which one to "start" per pipeline.
@@ -147,3 +148,4 @@ output runnerJobNames array = deployRunnerJobs ? map(sizes, s => '${baseName}-ru
 output azureOpenAiEndpointOut string = azureOpenAiEndpoint
 output azureOpenAiDeploymentOut string = azureOpenAiDeployment
 output carbonQueueAccountUrl string = storage.outputs.queueAccountUrl
+output sizingCacheAccountUrl string = storage.outputs.sizingCacheAccountUrl

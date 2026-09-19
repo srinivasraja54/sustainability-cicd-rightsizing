@@ -101,7 +101,9 @@ For comparison: GitHub-hosted Linux runners (4-vCPU) cost **$0.008/minute**, so 
 
 ## What the LLM costs
 
-The fallback to Azure OpenAI is only invoked when the rules engine returns `None`. In practice that's ~5–15% of dispatches for a repo with stable workflows.
+The fallback to Azure OpenAI is only invoked when the rules engine returns `None` *and* the workflow hasn't been sized before. A verdict is cached under a hash of (workflow YAML, prompt, deployment) in blob storage, so an unchanged ambiguous workflow costs one call ever, not one per run — see [decision_cache.py](../orchestrator/decision_cache.py).
+
+The ~5–15% of dispatches below is an **estimate**, not something we've measured at volume: it assumes a 10–20% rules-miss rate and workflows that change far less often than they run. The `source` field on every dispatch (`rules` / `llm` / `llm-cached`) is there so you can measure your own rate instead of trusting this one. The cost conclusion is not sensitive to it — see the sizing below.
 
 `gpt-4o-mini` pricing (illustrative): ~$0.15 per 1M input tokens, $0.60 per 1M output tokens. A typical workflow YAML is ~600 input tokens, response is ~50 output tokens. Per call: **~$0.00012**.
 
@@ -111,7 +113,7 @@ For 1,000 runs/month at 10% LLM-fallback rate:
 100 LLM calls × $0.00012 = $0.012 / month
 ```
 
-Negligible. The LLM is functionally free at this volume.
+Negligible. Even at a **100%** fallback rate with the cache disabled entirely, 1,000 calls is $0.12/month — still noise next to the compute line. The cache and the rules engine matter for latency and for the energy story, not for the bill.
 
 ## Things this comparison does NOT include
 

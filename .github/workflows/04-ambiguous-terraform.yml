@@ -34,6 +34,9 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          # Blob container holding cached LLM sizing verdicts. Unset is safe:
+          # the dispatcher logs that the cache is off and calls the LLM.
+          SIZING_CACHE_ACCOUNT_URL: ${{ secrets.SIZING_CACHE_ACCOUNT_URL }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
           ACA_BASE_NAME: ${{ secrets.ACA_BASE_NAME }}
