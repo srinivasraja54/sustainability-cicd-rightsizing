@@ -147,3 +147,35 @@ def test_no_llm_flag_is_unaffected_by_the_cache(workflow, llm_calls, cache):
     assert result["source"] == "default"
     assert result["size"] == "medium"
     assert llm_calls == []
+
+
+def test_failed_llm_call_falls_back_to_medium_and_is_not_cached(
+    workflow, cache, monkeypatch
+):
+    """An LLM outage must degrade to a default size, not to a failed pipeline."""
+    calls = []
+
+    def failing_decide(workflow_yaml, cfg):
+        calls.append(workflow_yaml)
+        raise RuntimeError("429 Too Many Requests")
+
+    monkeypatch.setattr(azure_openai_client, "decide_with_llm", failing_decide)
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://fake.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "fake-key")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+
+    path = workflow(AMBIGUOUS)
+    result = analyze(path)
+    assert result["source"] == "default"
+    assert result["size"] == "medium"
+    assert "LLM call failed" in result["reason"]
+
+    analyze(path)
+    assert len(calls) == 2, "a fallback must not be cached; retry the LLM next run"
+
+
+def test_unconfigured_llm_falls_back_to_medium(workflow, cache, monkeypatch):
+    monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
+    result = analyze(workflow(AMBIGUOUS))
+    assert result["source"] == "default"
+    assert result["size"] == "medium"

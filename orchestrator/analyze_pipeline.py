@@ -28,6 +28,15 @@ from pathlib import Path
 from sizing_rules import decide_from_rules
 
 
+def _default(reason: str) -> dict:
+    return {
+        "size": "medium",
+        "label": "aca-medium",
+        "reason": f"{reason}; defaulting to medium",
+        "source": "default",
+    }
+
+
 def analyze(
     workflow_path: Path, allow_llm: bool = True, use_cache: bool = True
 ) -> dict:
@@ -36,18 +45,17 @@ def analyze(
     decision = decide_from_rules(text)
     if decision is None:
         if not allow_llm:
-            return {
-                "size": "medium",
-                "label": "aca-medium",
-                "reason": "no rule matched; LLM disabled; defaulting to medium",
-                "source": "default",
-            }
+            return _default("no rule matched; LLM disabled")
         # Lazy imports so the pure-rules path doesn't require the openai or
         # azure SDKs — `--no-llm` stays runnable on a laptop with neither.
         import decision_cache
         from azure_openai_client import PROMPT_PATH, AzureOpenAIConfig, decide_with_llm
 
-        cfg = AzureOpenAIConfig.from_env()
+        try:
+            cfg = AzureOpenAIConfig.from_env()
+        except KeyError as e:
+            print(f"WARN: Azure OpenAI not configured ({e} unset)", file=sys.stderr)
+            return _default("no rule matched; LLM not configured")
 
         # Cache on the full input set — workflow text, prompt, deployment —
         # so the LLM is paid for once per workflow *change*, not once per run.
@@ -64,7 +72,15 @@ def analyze(
             )
 
         if decision is None:
-            decision = decide_with_llm(text, cfg)
+            # Like the cache and the carbon check, an LLM outage (network,
+            # throttling, bad JSON) must degrade to a default size, never to
+            # a failed pipeline. The fallback is not cached, so the next
+            # dispatch tries the LLM again.
+            try:
+                decision = decide_with_llm(text, cfg)
+            except Exception as e:
+                print(f"WARN: LLM sizing failed ({e})", file=sys.stderr)
+                return _default("no rule matched; LLM call failed")
             if key is not None:
                 decision_cache.put(key, decision)
 
